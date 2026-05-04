@@ -20,9 +20,16 @@ const ADDITIONAL_PATHS = [
   'C:\\Python310',
   'C:\\Users\\' + os.userInfo().username + '\\AppData\\Local\\Programs\\Python\\Python312',
   'C:\\Users\\' + os.userInfo().username + '\\AppData\\Local\\Programs\\Python\\Python311',
+  'C:\\Users\\' + os.userInfo().username + '\\AppData\\Local\\Programs\\Python\\Python310',
 ];
 
-process.env.PATH = `${ADDITIONAL_PATHS.join(';')};${process.env.PATH}`;
+// Filter out Windows Store stub aliases — they are not real Python installs
+const filteredPath = (process.env.PATH || '')
+  .split(';')
+  .filter(p => !p.toLowerCase().includes('windowsapps'))
+  .join(';');
+
+process.env.PATH = `${ADDITIONAL_PATHS.join(';')};${filteredPath}`;
 process.env.PYTHONIOENCODING = 'utf-8';
 
 export class CodeRunnerService {
@@ -63,8 +70,8 @@ export class CodeRunnerService {
 
       if (input) {
         child.stdin.write(input);
-        child.stdin.end();
       }
+      child.stdin.end();
 
       child.stdout.on('data', (data) => { stdout += data.toString(); });
       child.stderr.on('data', (data) => { stderr += data.toString(); });
@@ -116,11 +123,36 @@ export class CodeRunnerService {
   private static async runPython(code: string, input: string, tempDir: string): Promise<ExecutionResult> {
     const codeFile = path.join(tempDir, 'main.py');
     fs.writeFileSync(codeFile, code);
-    // Try python then python3
+
+    const NOT_FOUND_SIGNALS = [
+      'not recognized',
+      'not found',
+      'Microsoft Store',
+      'cannot find',
+      'No such file',
+      'Failed to start',
+    ];
+
+    const isPythonMissing = (stderr: string) =>
+      NOT_FOUND_SIGNALS.some(sig => stderr.toLowerCase().includes(sig.toLowerCase()));
+
+    // Try python first, then python3
     let result = await this.runCommand('python', [`"${codeFile}"`], input, tempDir);
-    if (result.stderr.includes('not recognized')) {
+    if (isPythonMissing(result.stderr)) {
       result = await this.runCommand('python3', [`"${codeFile}"`], input, tempDir);
     }
+
+    // If still not found, return a friendly error
+    if (isPythonMissing(result.stderr)) {
+      return {
+        stdout: '',
+        stderr:
+          'Python is not installed on this machine.\n\n' +
+          'Please install Python from https://www.python.org/downloads/\n' +
+          'Make sure to check "Add Python to PATH" during installation, then restart the compiler server.',
+      };
+    }
+
     return result;
   }
 
