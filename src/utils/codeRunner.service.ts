@@ -31,6 +31,7 @@ const filteredPath = (process.env.PATH || '')
 
 process.env.PATH = `${ADDITIONAL_PATHS.join(';')};${filteredPath}`;
 process.env.PYTHONIOENCODING = 'utf-8';
+process.env.PYTHONUNBUFFERED = '1';
 
 export class CodeRunnerService {
   static async execute(code: string, language: string, input: string = ''): Promise<ExecutionResult> {
@@ -94,8 +95,9 @@ export class CodeRunnerService {
   }
 
   private static async runC(code: string, input: string, tempDir: string): Promise<ExecutionResult> {
+    const isWin = os.platform() === 'win32';
     const codeFile = path.join(tempDir, 'main.c');
-    const exeFile = path.join(tempDir, 'main.exe');
+    const exeFile = path.join(tempDir, isWin ? 'main.exe' : 'main.out');
     fs.writeFileSync(codeFile, code);
 
     const compile = await this.runCommand('gcc', ['-std=c11', `"${codeFile}"`, '-o', `"${exeFile}"`], '', tempDir);
@@ -103,18 +105,31 @@ export class CodeRunnerService {
       return compile;
     }
 
+    if (!isWin && fs.existsSync(exeFile)) {
+      try {
+        fs.chmodSync(exeFile, 0o755);
+      } catch (_) {}
+    }
+
     const result = await this.runCommand(`"${exeFile}"`, [], input, tempDir);
     return result;
   }
 
   private static async runCpp(code: string, input: string, tempDir: string): Promise<ExecutionResult> {
+    const isWin = os.platform() === 'win32';
     const codeFile = path.join(tempDir, 'main.cpp');
-    const exeFile = path.join(tempDir, 'main.exe');
+    const exeFile = path.join(tempDir, isWin ? 'main.exe' : 'main.out');
     fs.writeFileSync(codeFile, code);
 
     const compile = await this.runCommand('g++', ['-std=c++14', `"${codeFile}"`, '-o', `"${exeFile}"`], '', tempDir);
     if (compile.stderr && !fs.existsSync(exeFile)) {
       return compile;
+    }
+
+    if (!isWin && fs.existsSync(exeFile)) {
+      try {
+        fs.chmodSync(exeFile, 0o755);
+      } catch (_) {}
     }
 
     return await this.runCommand(`"${exeFile}"`, [], input, tempDir);
