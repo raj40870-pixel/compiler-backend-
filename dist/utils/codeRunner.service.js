@@ -84,23 +84,37 @@ class CodeRunnerService {
         });
     }
     static async runC(code, input, tempDir) {
+        const isWin = os_1.default.platform() === 'win32';
         const codeFile = path_1.default.join(tempDir, 'main.c');
-        const exeFile = path_1.default.join(tempDir, 'main.exe');
+        const exeFile = path_1.default.join(tempDir, isWin ? 'main.exe' : 'main.out');
         fs_1.default.writeFileSync(codeFile, code);
         const compile = await this.runCommand('gcc', ['-std=c11', `"${codeFile}"`, '-o', `"${exeFile}"`], '', tempDir);
         if (compile.stderr && !fs_1.default.existsSync(exeFile)) {
             return compile;
         }
+        if (!isWin && fs_1.default.existsSync(exeFile)) {
+            try {
+                fs_1.default.chmodSync(exeFile, 0o755);
+            }
+            catch (_) { }
+        }
         const result = await this.runCommand(`"${exeFile}"`, [], input, tempDir);
         return result;
     }
     static async runCpp(code, input, tempDir) {
+        const isWin = os_1.default.platform() === 'win32';
         const codeFile = path_1.default.join(tempDir, 'main.cpp');
-        const exeFile = path_1.default.join(tempDir, 'main.exe');
+        const exeFile = path_1.default.join(tempDir, isWin ? 'main.exe' : 'main.out');
         fs_1.default.writeFileSync(codeFile, code);
         const compile = await this.runCommand('g++', ['-std=c++14', `"${codeFile}"`, '-o', `"${exeFile}"`], '', tempDir);
         if (compile.stderr && !fs_1.default.existsSync(exeFile)) {
             return compile;
+        }
+        if (!isWin && fs_1.default.existsSync(exeFile)) {
+            try {
+                fs_1.default.chmodSync(exeFile, 0o755);
+            }
+            catch (_) { }
         }
         return await this.runCommand(`"${exeFile}"`, [], input, tempDir);
     }
