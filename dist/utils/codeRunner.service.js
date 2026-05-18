@@ -29,6 +29,7 @@ const filteredPath = (process.env.PATH || '')
     .join(';');
 process.env.PATH = `${ADDITIONAL_PATHS.join(';')};${filteredPath}`;
 process.env.PYTHONIOENCODING = 'utf-8';
+process.env.PYTHONUNBUFFERED = '1';
 class CodeRunnerService {
     static async execute(code, language, input = '') {
         const executionId = crypto_1.default.randomUUID();

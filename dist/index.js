@@ -1,8 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const app_1 = require("./app");
-const PORT = process.env.PORT || 5000;
-app_1.app.listen(PORT, () => {
+const http_1 = require("http");
+const ws_1 = require("ws");
+const wsRunner_1 = require("./utils/wsRunner");
+const PORT = process.env.PORT || 8080;
+const server = (0, http_1.createServer)(app_1.app);
+const wss = new ws_1.WebSocketServer({ server, path: '/ws/run' });
+wss.on('connection', (ws) => {
+    (0, wsRunner_1.handleWsConnection)(ws);
+});
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 //# sourceMappingURL=index.js.map
