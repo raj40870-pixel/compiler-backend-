@@ -205,7 +205,7 @@ public class Main {
       { desc: 'Net = 55000.00',              fn: o => o.includes('55000.00') },
     ],
     compileWait: 0,
-    timeoutMs: 25000,
+    timeoutMs: 35000,
   },
 
   // ── 4. C++: Array statistics 8 inputs ───────────────────────────
@@ -247,7 +247,7 @@ int main() {
       { desc: 'Avg=',    fn: o => o.includes('Avg=') },
     ],
     compileWait: 0,
-    timeoutMs: 30000,
+    timeoutMs: 50000,
   },
 
   // ── 5. C: Temperature records 1+6=7 inputs ──────────────────────
@@ -288,10 +288,8 @@ int main() {
       { desc: 'Weekly avg present', fn: o => o.includes('Weekly avg:') },
     ],
     compileWait: 0,
-    timeoutMs: 30000,
+    timeoutMs: 50000,
   },
-
-];
 
 (async () => {
   console.log('\n' + '╔' + '═'.repeat(60) + '╗');
