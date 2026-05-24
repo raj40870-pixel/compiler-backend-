@@ -1,254 +1,73 @@
 import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import crypto from 'crypto';
 import os from 'os';
-import https from 'https';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
+import {
+  BASE_ENV,
+  checkDockerAvailable,
+  getPythonCmd,
+  getJavaClassName,
+  injectStdoutUnbuffering,
+  CS_PROJ_CONTENT,
+  resolveCmd
+} from './runnerHelper';
 
 interface ExecutionResult {
   stdout: string;
   stderr: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Judge0 CE – public free instance (no API key required for basic usage)
-//  Docs: https://ce.judge0.com  |  https://github.com/judge0/judge0
-// ─────────────────────────────────────────────────────────────────────────────
-const JUDGE0_BASE = 'https://ce.judge0.com';
+const RUNS_DIR = path.resolve(__dirname, '..', '..', 'bin', 'runs');
 
-// Judge0 language IDs
-const JUDGE0_LANG: Record<string, number> = {
-  c:          50,  // C (GCC 10.2.0)
-  cpp:        54,  // C++ (GCC 10.2.0)
-  csharp:     51,  // C# (Mono 6.12.0)
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Local PATH enrichment for Python / Java / Node
-// ─────────────────────────────────────────────────────────────────────────────
-const ADDITIONAL_PATHS = [
-  'C:\\Program Files\\nodejs',
-  'C:\\Program Files (x86)\\Dev-Cpp\\MinGW64\\bin',
-  'C:\\Program Files\\Dev-Cpp\\MinGW64\\bin',
-  'C:\\MinGW\\bin',
-  'C:\\msys64\\mingw64\\bin',
-  'C:\\Python312',
-  'C:\\Python311',
-  'C:\\Python310',
-  `C:\\Users\\${os.userInfo().username}\\AppData\\Local\\Programs\\Python\\Python312`,
-  `C:\\Users\\${os.userInfo().username}\\AppData\\Local\\Programs\\Python\\Python311`,
-  `C:\\Users\\${os.userInfo().username}\\AppData\\Local\\Programs\\Python\\Python310`,
-];
-
-const filteredPath = (process.env.PATH || '')
-  .split(';')
-  .filter(p => !p.toLowerCase().includes('windowsapps'))
-  .join(';');
-
-process.env.PATH = `${ADDITIONAL_PATHS.join(';')};${filteredPath}`;
-process.env.PYTHONIOENCODING = 'utf-8';
-process.env.PYTHONUNBUFFERED = '1';
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Judge0 helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-function judge0Request(method: string, urlPath: string, body?: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const options: https.RequestOptions = {
-      hostname: 'ce.judge0.com',
-      path: urlPath,
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    };
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => (data += chunk));
-      res.on('end', () => resolve(data));
-    });
-
-    req.on('error', reject);
-    if (body) req.write(body);
-    req.end();
-  });
-}
-
-async function runWithJudge0(
-  langId: number,
-  sourceCode: string,
-  stdin: string = ''
-): Promise<ExecutionResult> {
-  // 1️⃣  Submit submission
-  const submitBody = JSON.stringify({
-    language_id: langId,
-    source_code: Buffer.from(sourceCode).toString('base64'),
-    stdin: Buffer.from(stdin).toString('base64'),
-    base64_encoded: true,
-  });
-
-  let submitResponse: string;
-  try {
-    submitResponse = await judge0Request(
-      'POST',
-      '/submissions?base64_encoded=true&wait=false',
-      submitBody
-    );
-  } catch (err: any) {
-    return {
-      stdout: '',
-      stderr: `⚠️  Judge0 submission failed: ${err.message}\n\nNote: C/C++/C# run via the Judge0 cloud API on this machine (WDAC policy blocks local .exe files). Please check your internet connection.`,
-    };
-  }
-
-  let token: string;
-  try {
-    token = JSON.parse(submitResponse).token;
-    if (!token) throw new Error('No token in response');
-  } catch {
-    return {
-      stdout: '',
-      stderr: `⚠️  Judge0 error: unexpected response – ${submitResponse.slice(0, 300)}`,
-    };
-  }
-
-  // 2️⃣  Poll for result (max ~30 s)
-  const MAX_POLLS = 30;
-  const POLL_INTERVAL_MS = 1000;
-
-  for (let i = 0; i < MAX_POLLS; i++) {
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-
-    let pollResponse: string;
-    try {
-      pollResponse = await judge0Request(
-        'GET',
-        `/submissions/${token}?base64_encoded=true`
-      );
-    } catch (err: any) {
-      return { stdout: '', stderr: `⚠️  Judge0 poll error: ${err.message}` };
-    }
-
-    let result: any;
-    try {
-      result = JSON.parse(pollResponse);
-    } catch {
-      continue;
-    }
-
-    const statusId: number = result.status?.id ?? 0;
-    // Status IDs: 1=Queued, 2=Processing, 3=Accepted, 4=Wrong Answer, 5=TLE,
-    //             6=Compilation Error, 7-12=Runtime Errors, 13=Internal Error, 14=Exec Format Error
-    if (statusId <= 2) continue; // still processing
-
-    const decode = (b64: string | null | undefined): string =>
-      b64 ? Buffer.from(b64, 'base64').toString('utf-8') : '';
-
-    const stdout = decode(result.stdout);
-    let stderr = decode(result.stderr) + decode(result.compile_output) + decode(result.message);
-
-    // Surface friendly status messages
-    if (statusId === 5) stderr += '\n⏱  Time Limit Exceeded';
-    if (statusId === 14) stderr += '\n🚫  Execution Format Error';
-
-    return { stdout, stderr };
-  }
-
-  return {
-    stdout: '',
-    stderr: '⚠️  Judge0 timed out waiting for result (30 s). Please try again.',
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Local runner (Python / JavaScript / Java)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function runCommand(
-  command: string,
+// Spawns process directly and captures output to completion
+function executeProcess(
+  cmd: string,
   args: string[],
-  input: string,
-  tempDir: string
-): Promise<ExecutionResult> {
+  cwd: string,
+  stdinText = '',
+  timeoutMs = 10000
+): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { shell: true, cwd: tempDir });
+    const resolvedCmd = resolveCmd(cmd);
+    const useShell = process.platform === 'win32' && (resolvedCmd.endsWith('.cmd') || resolvedCmd.endsWith('.bat'));
+    const child = spawn(resolvedCmd, args, { cwd, env: BASE_ENV, shell: useShell });
+
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
 
-    if (input) child.stdin.write(input);
-    child.stdin.end();
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill('SIGKILL');
+      } catch (_) { }
+    }, timeoutMs);
 
-    child.stdout.on('data', (data) => { stdout += data.toString(); });
-    child.stderr.on('data', (data) => { stderr += data.toString(); });
+    if (stdinText && child.stdin) {
+      child.stdin.write(stdinText);
+      child.stdin.end();
+    }
 
-    const timeout = setTimeout(() => {
-      child.kill();
-      resolve({ stdout, stderr: stderr + '\nExecution timed out (10s)' });
-    }, 10000);
+    child.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
 
-    child.on('close', () => {
-      clearTimeout(timeout);
-      resolve({ stdout, stderr });
+    child.stderr?.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr, timedOut });
     });
 
     child.on('error', (err) => {
-      clearTimeout(timeout);
-      resolve({ stdout, stderr: stderr + `\nFailed to start execution: ${err.message}` });
+      clearTimeout(timer);
+      resolve({ code: -1, stdout, stderr: stderr + `\nFailed to start process: ${err.message}`, timedOut });
     });
   });
 }
-
-function makeTempDir(): string {
-  const tempDir = path.join(os.tmpdir(), 'compler-bro', crypto.randomUUID());
-  fs.mkdirSync(tempDir, { recursive: true });
-  return tempDir;
-}
-
-async function runPython(code: string, input: string, tempDir: string): Promise<ExecutionResult> {
-  const codeFile = path.join(tempDir, 'main.py');
-  fs.writeFileSync(codeFile, code);
-
-  const NOT_FOUND = ['not recognized', 'not found', 'Microsoft Store', 'cannot find', 'No such file', 'Failed to start'];
-  const isMissing = (s: string) => NOT_FOUND.some(sig => s.toLowerCase().includes(sig.toLowerCase()));
-
-  let result = await runCommand('python', [`"${codeFile}"`], input, tempDir);
-  if (isMissing(result.stderr)) {
-    result = await runCommand('python3', [`"${codeFile}"`], input, tempDir);
-  }
-  if (isMissing(result.stderr)) {
-    return {
-      stdout: '',
-      stderr:
-        'Python is not installed on this machine.\n\n' +
-        'Please install Python from https://www.python.org/downloads/\n' +
-        'Make sure to check "Add Python to PATH" during installation, then restart the compiler server.',
-    };
-  }
-  return result;
-}
-
-async function runJava(code: string, input: string, tempDir: string): Promise<ExecutionResult> {
-  const codeFile = path.join(tempDir, 'Main.java');
-  fs.writeFileSync(codeFile, code);
-  const compile = await runCommand('javac', [`"${codeFile}"`], '', tempDir);
-  if (compile.stderr && !fs.existsSync(path.join(tempDir, 'Main.class'))) {
-    return compile;
-  }
-  return runCommand('java', ['Main'], input, tempDir);
-}
-
-async function runNode(code: string, input: string, tempDir: string): Promise<ExecutionResult> {
-  const codeFile = path.join(tempDir, 'main.js');
-  fs.writeFileSync(codeFile, code);
-  return runCommand('node', [`"${codeFile}"`], input, tempDir);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  Public API
-// ─────────────────────────────────────────────────────────────────────────────
 
 export class CodeRunnerService {
   static async execute(
@@ -257,28 +76,298 @@ export class CodeRunnerService {
     input: string = ''
   ): Promise<ExecutionResult> {
     const lang = language.toLowerCase();
+    const isDocker = checkDockerAvailable();
 
-    // C, C++, C# → Judge0 cloud (WDAC blocks local compiled .exe on this machine)
-    if (JUDGE0_LANG[lang] !== undefined) {
-      return runWithJudge0(JUDGE0_LANG[lang], code, input);
+    if (isDocker) {
+      return this.executeInDocker(code, lang, input);
+    } else {
+      return this.executeLocally(code, lang, input);
+    }
+  }
+
+  private static async executeInDocker(
+    code: string,
+    lang: string,
+    input: string
+  ): Promise<ExecutionResult> {
+    const codeB64 = Buffer.from(code).toString('base64');
+    let runCmd = '';
+
+    switch (lang) {
+      case 'c':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.c && gcc -O2 -Wall main.c -o main && ./main';
+        break;
+      case 'cpp':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.cpp && g++ -O2 -Wall main.cpp -o main && ./main';
+        break;
+      case 'python':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.py && python3 -u main.py';
+        break;
+      case 'java': {
+        const className = getJavaClassName(code);
+        runCmd = `echo $CODE_B64 | base64 -d > ${className}.java && javac ${className}.java && java ${className}`;
+        break;
+      }
+      case 'javascript':
+      case 'node':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.js && node main.js';
+        break;
+      case 'typescript':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.ts && npx ts-node --transpile-only main.ts';
+        break;
+      case 'csharp': {
+        const projB64 = Buffer.from(CS_PROJ_CONTENT).toString('base64');
+        runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --configuration Release`;
+        break;
+      }
+      case 'go':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.go && go run main.go';
+        break;
+      case 'php': {
+        let phpCode = code;
+        if (!phpCode.trim().startsWith('<?php')) {
+          phpCode = '<?php\n' + phpCode;
+        }
+        const reqs = [...phpCode.matchAll(/\/\/\s*composer\s+require\s+([a-zA-Z0-9_\-\/]+)/gi)].map(m => m[1]);
+        if (reqs.length > 0 && !phpCode.includes('vendor/autoload.php')) {
+          phpCode = phpCode.replace(/<\?php/i, '<?php\nrequire_once __DIR__ . "/vendor/autoload.php";\n');
+        }
+        const inlineB64 = Buffer.from(phpCode).toString('base64');
+        if (reqs.length > 0) {
+          runCmd = `echo ${inlineB64} | base64 -d > main.php && composer require ${reqs.join(' ')} --quiet && php main.php`;
+        } else {
+          runCmd = `echo ${inlineB64} | base64 -d > main.php && php main.php`;
+        }
+        break;
+      }
+      case 'rust':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.rs && rustc main.rs -o main && ./main';
+        break;
+      default:
+        return { stdout: '', stderr: `Unsupported language in Docker: ${lang}` };
     }
 
-    // Python, JavaScript, Java → local execution
-    const tempDir = makeTempDir();
+    const imageName = process.env.DOCKER_IMAGE || 'compiler-runner';
+    const result = await executeProcess(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '-i',
+        '--net=none',
+        '--memory=256m',
+        '--cpus=0.5',
+        '-e', `CODE_B64=${codeB64}`,
+        imageName,
+        'sh',
+        '-c',
+        runCmd
+      ],
+      os.tmpdir(),
+      input,
+      12000 // 12 second limit
+    );
+
+    if (result.timedOut) {
+      return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+    }
+
+    return { stdout: result.stdout, stderr: result.stderr };
+  }
+
+  private static async executeLocally(
+    code: string,
+    lang: string,
+    input: string
+  ): Promise<ExecutionResult> {
+    const id = crypto.randomUUID();
+    const runDir = path.join(RUNS_DIR, id);
+    if (!fs.existsSync(runDir)) {
+      fs.mkdirSync(runDir, { recursive: true });
+    }
+
     try {
+      const execExt = process.platform === 'win32' ? '.exe' : '';
+      const binaryPath = path.join(runDir, 'main' + execExt);
+
       switch (lang) {
-        case 'python':
-          return await runPython(code, input, tempDir);
+        case 'c': {
+          const srcPath = path.join(runDir, 'main.c');
+          fs.writeFileSync(srcPath, injectStdoutUnbuffering(code, 'c'));
+
+          const compile = await executeProcess('gcc', ['-std=c11', '-O2', '-Wall', '-o', binaryPath, 'main.c'], runDir);
+          if (compile.code !== 0) {
+            return { stdout: '', stderr: compile.stderr || compile.stdout };
+          }
+
+          const run = await executeProcess(binaryPath, [], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'cpp': {
+          const srcPath = path.join(runDir, 'main.cpp');
+          fs.writeFileSync(srcPath, injectStdoutUnbuffering(code, 'cpp'));
+
+          const compile = await executeProcess('g++', ['-std=c++14', '-O2', '-Wall', '-o', binaryPath, 'main.cpp'], runDir);
+          if (compile.code !== 0) {
+            return { stdout: '', stderr: compile.stderr || compile.stdout };
+          }
+
+          const run = await executeProcess(binaryPath, [], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'python': {
+          const srcPath = path.join(runDir, 'main.py');
+          fs.writeFileSync(srcPath, code);
+          const pyCmd = getPythonCmd();
+
+          const run = await executeProcess(pyCmd, ['-u', 'main.py'], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'java': {
+          const className = getJavaClassName(code);
+          const srcPath = path.join(runDir, `${className}.java`);
+          fs.writeFileSync(srcPath, code);
+
+          const compile = await executeProcess('javac', [`${className}.java`], runDir);
+          if (compile.code !== 0) {
+            return { stdout: '', stderr: compile.stderr || compile.stdout };
+          }
+
+          const run = await executeProcess('java', [className], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
         case 'javascript':
-          return await runNode(code, input, tempDir);
-        case 'java':
-          return await runJava(code, input, tempDir);
+        case 'node': {
+          const srcPath = path.join(runDir, 'main.js');
+          fs.writeFileSync(srcPath, code);
+
+          const run = await executeProcess('node', ['main.js'], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'typescript': {
+          // Strip conflicting 'declare var' for globals TypeScript already declares (TS 4.4+ includes console, etc.)
+          const builtinGlobals = ['require', 'process', 'console', 'module', '__dirname', '__filename', 'Buffer', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'];
+          const cleanCode = code.split('\n').filter(line => {
+            const trimmed = line.trim();
+            return !builtinGlobals.some(g => trimmed === `declare var ${g}: any;` || trimmed === `declare var ${g}: any`);
+          }).join('\n');
+
+          const srcPath = path.join(runDir, 'main.ts');
+          fs.writeFileSync(srcPath, cleanCode);
+          const localTsc = path.resolve(__dirname, '..', '..', 'node_modules', 'typescript', 'bin', 'tsc');
+          // Write tsconfig in runDir so tsc doesn't conflict with files on commandline
+          const nodeTypesPath = path.resolve(__dirname, '..', '..', 'node_modules', '@types');
+          const tscfg = JSON.stringify({
+            compilerOptions: {
+              target: 'ES2020',
+              module: 'commonjs',
+              strict: false,
+              esModuleInterop: true,
+              skipLibCheck: true,
+              outDir: '.',
+              noEmitOnError: false,
+              typeRoots: [nodeTypesPath],
+              types: ['node']
+            },
+            files: ['main.ts']
+          });
+          fs.writeFileSync(path.join(runDir, 'tsconfig.json'), tscfg);
+
+          const compile = await executeProcess('node', [localTsc, '--project', path.join(runDir, 'tsconfig.json')], runDir);
+          if (compile.code !== 0) {
+            if (!fs.existsSync(path.join(runDir, 'main.js'))) {
+              return { stdout: '', stderr: compile.stderr || compile.stdout };
+            }
+          }
+
+          const run = await executeProcess('node', ['main.js'], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'csharp': {
+          const csprojPath = path.join(runDir, 'main.csproj');
+          fs.writeFileSync(csprojPath, CS_PROJ_CONTENT);
+          const programPath = path.join(runDir, 'Program.cs');
+          fs.writeFileSync(programPath, code);
+
+          const restore = await executeProcess('dotnet', ['restore'], runDir);
+          if (restore.code !== 0) {
+            return { stdout: '', stderr: restore.stderr || restore.stdout };
+          }
+
+          const run = await executeProcess('dotnet', ['run', '--project', 'main.csproj', '--configuration', 'Release'], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'go': {
+          const srcPath = path.join(runDir, 'main.go');
+          fs.writeFileSync(srcPath, code);
+
+          const run = await executeProcess('go', ['run', 'main.go'], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'php': {
+          const srcPath = path.join(runDir, 'main.php');
+          let phpCode = code;
+          if (!phpCode.trim().startsWith('<?php')) {
+            phpCode = '<?php\n' + phpCode;
+          }
+          
+          const composerRequires = [...phpCode.matchAll(/\/\/\s*composer\s+require\s+([a-zA-Z0-9_\-\/]+)/gi)].map(m => m[1] as string);
+          if (composerRequires.length > 0 && !phpCode.includes('vendor/autoload.php')) {
+            phpCode = phpCode.replace(/<\?php/i, '<?php\nrequire_once __DIR__ . "/vendor/autoload.php";\n');
+          }
+          
+          fs.writeFileSync(srcPath, phpCode);
+
+          if (composerRequires.length > 0) {
+            const comp = await executeProcess('composer', ['require', ...composerRequires, '--quiet'], runDir, '', 30000);
+            if (comp.code !== 0) {
+              return { stdout: '', stderr: comp.stderr || comp.stdout };
+            }
+          }
+
+          const run = await executeProcess('php', ['main.php'], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'rust': {
+          const srcPath = path.join(runDir, 'main.rs');
+          fs.writeFileSync(srcPath, code);
+
+          const compile = await executeProcess('rustc', ['main.rs', '-C', 'linker=rust-lld', '-o', binaryPath], runDir);
+          if (compile.code !== 0) {
+            return { stdout: '', stderr: compile.stderr || compile.stdout };
+          }
+
+          const run = await executeProcess(binaryPath, [], runDir, input);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
         default:
-          throw new Error(`Unsupported language: ${language}`);
+          return { stdout: '', stderr: `Unsupported language: ${lang}` };
       }
     } finally {
-      // temp dir cleanup (best-effort)
-      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch (_) {}
+      // Clean up directory
+      try {
+        fs.rmSync(runDir, { recursive: true, force: true });
+      } catch (_) { }
     }
   }
 }

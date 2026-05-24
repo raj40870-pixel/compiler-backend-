@@ -20,4 +20,12 @@ app.use('/api', run_routes_1.default);
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });
+// Global error handler middleware (catches errors from routes/middleware)
+app.use((err, req, res, next) => {
+    console.error('Express error handler:', err);
+    res.status(500).json({
+        error: 'Internal Server Error',
+        message: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred'
+    });
+});
 //# sourceMappingURL=app.js.map
