@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: compiler-backend
+    env: docker
+    plan: free
+    dockerCommand: npm start
+    branch: main
