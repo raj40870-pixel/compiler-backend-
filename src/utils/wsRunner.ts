@@ -380,7 +380,7 @@ export function handleWsConnection(ws: WebSocket) {
             if (!compilerExists('rustc')) { notInstalled('Rust', 'Install from https://rustup.rs/'); return; }
             const src = path.join(runDir, 'main.rs');
             fs.writeFileSync(src, code);
-            compile('rustc', ['main.rs', '-C', 'linker=rust-lld', '-o', binaryPath], runDir, () => {
+            compile('rustc', ['main.rs', '-o', binaryPath], runDir, () => {
               startProcess(binaryPath, [], runDir);
             });
             break;
