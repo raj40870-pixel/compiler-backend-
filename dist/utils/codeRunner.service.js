@@ -15,7 +15,8 @@ const RUNS_DIR = path_1.default.resolve(__dirname, '..', '..', 'bin', 'runs');
 function executeProcess(cmd, args, cwd, stdinText = '', timeoutMs = 10000) {
     return new Promise((resolve) => {
         const resolvedCmd = (0, runnerHelper_1.resolveCmd)(cmd);
-        const child = (0, child_process_1.spawn)(resolvedCmd, args, { cwd, env: runnerHelper_1.BASE_ENV });
+        const useShell = process.platform === 'win32' && (resolvedCmd.endsWith('.cmd') || resolvedCmd.endsWith('.bat'));
+        const child = (0, child_process_1.spawn)(resolvedCmd, args, { cwd, env: runnerHelper_1.BASE_ENV, shell: useShell });
         let stdout = '';
         let stderr = '';
         let timedOut = false;
@@ -84,15 +85,30 @@ class CodeRunnerService {
                 break;
             case 'csharp': {
                 const projB64 = Buffer.from(runnerHelper_1.CS_PROJ_CONTENT).toString('base64');
-                runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet run --no-restore --configuration Release`;
+                runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --configuration Release`;
                 break;
             }
             case 'go':
                 runCmd = 'echo $CODE_B64 | base64 -d > main.go && go run main.go';
                 break;
-            case 'php':
-                runCmd = 'echo $CODE_B64 | base64 -d > main.php && php main.php';
+            case 'php': {
+                let phpCode = code;
+                if (!phpCode.trim().startsWith('<?php')) {
+                    phpCode = '<?php\n' + phpCode;
+                }
+                const reqs = [...phpCode.matchAll(/\/\/\s*composer\s+require\s+([a-zA-Z0-9_\-\/]+)/gi)].map(m => m[1]);
+                if (reqs.length > 0 && !phpCode.includes('vendor/autoload.php')) {
+                    phpCode = phpCode.replace(/<\?php/i, '<?php\nrequire_once __DIR__ . "/vendor/autoload.php";\n');
+                }
+                const inlineB64 = Buffer.from(phpCode).toString('base64');
+                if (reqs.length > 0) {
+                    runCmd = `echo ${inlineB64} | base64 -d > main.php && composer require ${reqs.join(' ')} --quiet && php main.php`;
+                }
+                else {
+                    runCmd = `echo ${inlineB64} | base64 -d > main.php && php main.php`;
+                }
                 break;
+            }
             case 'rust':
                 runCmd = 'echo $CODE_B64 | base64 -d > main.rs && rustc main.rs -o main && ./main';
                 break;
@@ -132,7 +148,7 @@ class CodeRunnerService {
                 case 'c': {
                     const srcPath = path_1.default.join(runDir, 'main.c');
                     fs_1.default.writeFileSync(srcPath, (0, runnerHelper_1.injectStdoutUnbuffering)(code, 'c'));
-                    const compile = await executeProcess('gcc', ['-O2', '-Wall', '-o', binaryPath, 'main.c'], runDir);
+                    const compile = await executeProcess('gcc', ['-std=c11', '-O2', '-Wall', '-o', binaryPath, 'main.c'], runDir);
                     if (compile.code !== 0) {
                         return { stdout: '', stderr: compile.stderr || compile.stdout };
                     }
@@ -144,7 +160,7 @@ class CodeRunnerService {
                 case 'cpp': {
                     const srcPath = path_1.default.join(runDir, 'main.cpp');
                     fs_1.default.writeFileSync(srcPath, (0, runnerHelper_1.injectStdoutUnbuffering)(code, 'cpp'));
-                    const compile = await executeProcess('g++', ['-O2', '-Wall', '-o', binaryPath, 'main.cpp'], runDir);
+                    const compile = await executeProcess('g++', ['-std=c++14', '-O2', '-Wall', '-o', binaryPath, 'main.cpp'], runDir);
                     if (compile.code !== 0) {
                         return { stdout: '', stderr: compile.stderr || compile.stdout };
                     }
@@ -185,10 +201,39 @@ class CodeRunnerService {
                     return { stdout: run.stdout, stderr: run.stderr };
                 }
                 case 'typescript': {
+                    // Strip conflicting 'declare var' for globals TypeScript already declares (TS 4.4+ includes console, etc.)
+                    const builtinGlobals = ['require', 'process', 'console', 'module', '__dirname', '__filename', 'Buffer', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'];
+                    const cleanCode = code.split('\n').filter(line => {
+                        const trimmed = line.trim();
+                        return !builtinGlobals.some(g => trimmed === `declare var ${g}: any;` || trimmed === `declare var ${g}: any`);
+                    }).join('\n');
                     const srcPath = path_1.default.join(runDir, 'main.ts');
-                    fs_1.default.writeFileSync(srcPath, code);
-                    const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-                    const run = await executeProcess(npxCmd, ['ts-node', '--transpile-only', 'main.ts'], runDir, input);
+                    fs_1.default.writeFileSync(srcPath, cleanCode);
+                    const localTsc = path_1.default.resolve(__dirname, '..', '..', 'node_modules', 'typescript', 'bin', 'tsc');
+                    // Write tsconfig in runDir so tsc doesn't conflict with files on commandline
+                    const nodeTypesPath = path_1.default.resolve(__dirname, '..', '..', 'node_modules', '@types');
+                    const tscfg = JSON.stringify({
+                        compilerOptions: {
+                            target: 'ES2020',
+                            module: 'commonjs',
+                            strict: false,
+                            esModuleInterop: true,
+                            skipLibCheck: true,
+                            outDir: '.',
+                            noEmitOnError: false,
+                            typeRoots: [nodeTypesPath],
+                            types: ['node']
+                        },
+                        files: ['main.ts']
+                    });
+                    fs_1.default.writeFileSync(path_1.default.join(runDir, 'tsconfig.json'), tscfg);
+                    const compile = await executeProcess('node', [localTsc, '--project', path_1.default.join(runDir, 'tsconfig.json')], runDir);
+                    if (compile.code !== 0) {
+                        if (!fs_1.default.existsSync(path_1.default.join(runDir, 'main.js'))) {
+                            return { stdout: '', stderr: compile.stderr || compile.stdout };
+                        }
+                    }
+                    const run = await executeProcess('node', ['main.js'], runDir, input);
                     if (run.timedOut)
                         return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
                     return { stdout: run.stdout, stderr: run.stderr };
@@ -198,7 +243,11 @@ class CodeRunnerService {
                     fs_1.default.writeFileSync(csprojPath, runnerHelper_1.CS_PROJ_CONTENT);
                     const programPath = path_1.default.join(runDir, 'Program.cs');
                     fs_1.default.writeFileSync(programPath, code);
-                    const run = await executeProcess('dotnet', ['run', '--project', 'main.csproj', '--no-restore', '--configuration', 'Release'], runDir, input);
+                    const restore = await executeProcess('dotnet', ['restore'], runDir);
+                    if (restore.code !== 0) {
+                        return { stdout: '', stderr: restore.stderr || restore.stdout };
+                    }
+                    const run = await executeProcess('dotnet', ['run', '--project', 'main.csproj', '--configuration', 'Release'], runDir, input);
                     if (run.timedOut)
                         return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
                     return { stdout: run.stdout, stderr: run.stderr };
@@ -213,7 +262,21 @@ class CodeRunnerService {
                 }
                 case 'php': {
                     const srcPath = path_1.default.join(runDir, 'main.php');
-                    fs_1.default.writeFileSync(srcPath, code);
+                    let phpCode = code;
+                    if (!phpCode.trim().startsWith('<?php')) {
+                        phpCode = '<?php\n' + phpCode;
+                    }
+                    const composerRequires = [...phpCode.matchAll(/\/\/\s*composer\s+require\s+([a-zA-Z0-9_\-\/]+)/gi)].map(m => m[1]);
+                    if (composerRequires.length > 0 && !phpCode.includes('vendor/autoload.php')) {
+                        phpCode = phpCode.replace(/<\?php/i, '<?php\nrequire_once __DIR__ . "/vendor/autoload.php";\n');
+                    }
+                    fs_1.default.writeFileSync(srcPath, phpCode);
+                    if (composerRequires.length > 0) {
+                        const comp = await executeProcess('composer', ['require', ...composerRequires, '--quiet'], runDir, '', 30000);
+                        if (comp.code !== 0) {
+                            return { stdout: '', stderr: comp.stderr || comp.stdout };
+                        }
+                    }
                     const run = await executeProcess('php', ['main.php'], runDir, input);
                     if (run.timedOut)
                         return { stdout: '', stderr: '⏱  Execution Timed Out (10s)' };
@@ -222,7 +285,7 @@ class CodeRunnerService {
                 case 'rust': {
                     const srcPath = path_1.default.join(runDir, 'main.rs');
                     fs_1.default.writeFileSync(srcPath, code);
-                    const compile = await executeProcess('rustc', ['main.rs', '-o', binaryPath], runDir);
+                    const compile = await executeProcess('rustc', ['main.rs', '-C', 'linker=rust-lld', '-o', binaryPath], runDir);
                     if (compile.code !== 0) {
                         return { stdout: '', stderr: compile.stderr || compile.stdout };
                     }
