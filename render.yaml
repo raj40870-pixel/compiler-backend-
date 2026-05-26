@@ -5,3 +5,8 @@ services:
     plan: free
     dockerCommand: npm start
     branch: main
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: NODE_ENV
+        value: production
