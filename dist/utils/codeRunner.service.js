@@ -285,7 +285,7 @@ class CodeRunnerService {
                 case 'rust': {
                     const srcPath = path_1.default.join(runDir, 'main.rs');
                     fs_1.default.writeFileSync(srcPath, code);
-                    const compile = await executeProcess('rustc', ['main.rs', '-C', 'linker=rust-lld', '-o', binaryPath], runDir);
+                    const compile = await executeProcess('rustc', ['main.rs', '-o', binaryPath], runDir);
                     if (compile.code !== 0) {
                         return { stdout: '', stderr: compile.stderr || compile.stdout };
                     }

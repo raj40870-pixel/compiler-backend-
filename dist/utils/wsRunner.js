@@ -383,7 +383,7 @@ function handleWsConnection(ws) {
                         }
                         const src = path_1.default.join(runDir, 'main.rs');
                         fs_1.default.writeFileSync(src, code);
-                        compile('rustc', ['main.rs', '-C', 'linker=rust-lld', '-o', binaryPath], runDir, () => {
+                        compile('rustc', ['main.rs', '-o', binaryPath], runDir, () => {
                             startProcess(binaryPath, [], runDir);
                         });
                         break;
