@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y \
     php-cli \
     rustc \
     cargo \
+    lua5.4 \
+    unzip \
+    && ln -s /usr/bin/lua5.4 /usr/bin/lua || true \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g typescript ts-node \
@@ -26,6 +29,11 @@ RUN apt-get update && apt-get install -y \
     && rm packages-microsoft-prod.deb \
     && apt-get update \
     && apt-get install -y dotnet-sdk-8.0 \
+    && curl -L https://github.com/JetBrains/kotlin/releases/download/v2.1.0/kotlin-compiler-2.1.0.zip -o /tmp/kotlin.zip \
+    && unzip /tmp/kotlin.zip -d /opt \
+    && rm /tmp/kotlin.zip \
+    && ln -s /opt/kotlinc/bin/kotlinc /usr/local/bin/kotlinc \
+    && ln -s /opt/kotlinc/bin/kotlin /usr/local/bin/kotlin \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

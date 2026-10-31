@@ -136,9 +136,9 @@ export function handleWsConnection(ws: WebSocket) {
 
       timeoutId = setTimeout(() => {
         try { compChild.kill('SIGKILL'); } catch (_) { }
-        send('stderr', '\r\nCompilation timed out (30 seconds)\r\n');
+        send('stderr', '\r\nCompilation timed out (45 seconds)\r\n');
         cleanup();
-      }, 30_000);
+      }, 45_000);
 
     } catch (err: any) {
       send('stderr', `Compiler spawn failed: ${err.message}\r\n`);
@@ -170,7 +170,7 @@ export function handleWsConnection(ws: WebSocket) {
               runCmd = 'echo $CODE_B64 | base64 -d > main.c && gcc -O2 -Wall main.c -o main && ./main';
               break;
             case 'cpp':
-              runCmd = 'echo $CODE_B64 | base64 -d > main.cpp && g++ -O2 -Wall main.cpp -o main && ./main';
+              runCmd = 'echo $CODE_B64 | base64 -d > main.cpp && g++ -std=c++17 -O0 -Wall main.cpp -o main && ./main';
               break;
             case 'python':
               runCmd = 'echo $CODE_B64 | base64 -d > main.py && python3 -u main.py';
@@ -215,6 +215,17 @@ export function handleWsConnection(ws: WebSocket) {
             case 'rust':
               runCmd = 'echo $CODE_B64 | base64 -d > main.rs && rustc main.rs -o main && ./main';
               break;
+            case 'kotlin':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -include-runtime -d main.jar && java -jar main.jar';
+              break;
+            case 'lua':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.lua && lua main.lua';
+              break;
+            case 'bash':
+            case 'sh':
+            case 'shell':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.sh && bash main.sh';
+              break;
             default:
               send('stderr', `Unsupported language: ${language}\r\n`);
               send('exit', 1);
@@ -256,7 +267,7 @@ export function handleWsConnection(ws: WebSocket) {
             if (!compilerExists('g++')) { notInstalled('G++ (C++ compiler)', 'Install Dev-C++ or MinGW'); return; }
             const src = path.join(runDir, 'main.cpp');
             fs.writeFileSync(src, injectStdoutUnbuffering(code, 'cpp'));
-            compile('g++', ['-std=c++14', '-O2', '-Wall', '-o', binaryPath, 'main.cpp'], runDir, () => {
+            compile('g++', ['-std=c++17', '-O0', '-Wall', '-o', binaryPath, 'main.cpp'], runDir, () => {
               startProcess(binaryPath, [], runDir);
             });
             break;
@@ -380,9 +391,46 @@ export function handleWsConnection(ws: WebSocket) {
             if (!compilerExists('rustc')) { notInstalled('Rust', 'Install from https://rustup.rs/'); return; }
             const src = path.join(runDir, 'main.rs');
             fs.writeFileSync(src, code);
-            compile('rustc', ['main.rs', '-o', binaryPath], runDir, () => {
+            const rustArgs = process.platform === 'win32'
+              ? ['main.rs', '--target', 'x86_64-pc-windows-gnu', '-o', binaryPath]
+              : ['main.rs', '-o', binaryPath];
+            compile('rustc', rustArgs, runDir, () => {
               startProcess(binaryPath, [], runDir);
             });
+            break;
+          }
+
+          // ── Kotlin ──────────────────────────────────────────────────────────
+          case 'kotlin': {
+            if (!compilerExists('kotlinc')) { notInstalled('Kotlin Compiler', 'Install Kotlin from https://kotlinlang.org/'); return; }
+            const src = path.join(runDir, 'main.kt');
+            fs.writeFileSync(src, code);
+            const jarPath = path.join(runDir, 'main.jar');
+            compile('kotlinc', ['main.kt', '-include-runtime', '-d', jarPath], runDir, () => {
+              startProcess('java', ['-jar', jarPath], runDir);
+            });
+            break;
+          }
+
+          // ── Lua ─────────────────────────────────────────────────────────────
+          case 'lua': {
+            const luaCmd = compilerExists('lua') ? 'lua' : (compilerExists('lua5.4') ? 'lua5.4' : 'lua');
+            if (!compilerExists(luaCmd)) { notInstalled('Lua', 'Download from https://www.lua.org/'); return; }
+            const src = path.join(runDir, 'main.lua');
+            fs.writeFileSync(src, code);
+            startProcess(luaCmd, ['main.lua'], runDir);
+            break;
+          }
+
+          // ── Bash / Shell ────────────────────────────────────────────────────
+          case 'bash':
+          case 'sh':
+          case 'shell': {
+            const bashCmd = compilerExists('bash') ? 'bash' : 'sh';
+            if (!compilerExists(bashCmd)) { notInstalled('Bash', 'Bash is not available on this server'); return; }
+            const src = path.join(runDir, 'main.sh');
+            fs.writeFileSync(src, code);
+            startProcess(bashCmd, ['main.sh'], runDir);
             break;
           }
 
