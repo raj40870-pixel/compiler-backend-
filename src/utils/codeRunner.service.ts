@@ -27,7 +27,7 @@ function executeProcess(
   args: string[],
   cwd: string,
   stdinText = '',
-  timeoutMs = 15000
+  timeoutMs = 20000
 ): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
     const resolvedCmd = resolveCmd(cmd);
@@ -118,7 +118,7 @@ export class CodeRunnerService {
         break;
       case 'csharp': {
         const projB64 = Buffer.from(CS_PROJ_CONTENT).toString('base64');
-        runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --configuration Release`;
+        runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --no-restore --configuration Release`;
         break;
       }
       case 'go':
@@ -145,7 +145,7 @@ export class CodeRunnerService {
         runCmd = 'echo $CODE_B64 | base64 -d > main.rs && rustc main.rs -o main && ./main';
         break;
       case 'kotlin':
-        runCmd = 'echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -include-runtime -d main.jar && java -jar main.jar';
+        runCmd = 'echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -d . && kotlin MainKt';
         break;
       case 'lua':
         runCmd = 'echo $CODE_B64 | base64 -d > main.lua && lua main.lua';
@@ -177,11 +177,11 @@ export class CodeRunnerService {
       ],
       os.tmpdir(),
       input,
-      15000
+      30000
     );
 
     if (result.timedOut) {
-      return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+      return { stdout: '', stderr: '⏱  Execution Timed Out (30s)' };
     }
 
     return { stdout: result.stdout, stderr: result.stderr };
@@ -313,13 +313,13 @@ export class CodeRunnerService {
           const programPath = path.join(runDir, 'Program.cs');
           fs.writeFileSync(programPath, code);
 
-          const restore = await executeProcess('dotnet', ['restore'], runDir, '', 25000);
+          const restore = await executeProcess('dotnet', ['restore'], runDir, '', 30000);
           if (restore.code !== 0) {
             return { stdout: '', stderr: restore.stderr || restore.stdout };
           }
 
-          const run = await executeProcess('dotnet', ['run', '--project', 'main.csproj', '--configuration', 'Release'], runDir, input, 15000);
-          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+          const run = await executeProcess('dotnet', ['run', '--project', 'main.csproj', '--no-restore'], runDir, input, 25000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (25s)' };
           return { stdout: run.stdout, stderr: run.stderr };
         }
 
@@ -379,15 +379,14 @@ export class CodeRunnerService {
         case 'kotlin': {
           const srcPath = path.join(runDir, 'main.kt');
           fs.writeFileSync(srcPath, code);
-          const jarPath = path.join(runDir, 'main.jar');
 
-          const compile = await executeProcess('kotlinc', ['main.kt', '-include-runtime', '-d', jarPath], runDir, '', 30000);
+          const compile = await executeProcess('kotlinc', ['main.kt', '-d', '.'], runDir, '', 30000);
           if (compile.code !== 0) {
             return { stdout: '', stderr: compile.stderr || compile.stdout };
           }
 
-          const run = await executeProcess('java', ['-jar', jarPath], runDir, input, 15000);
-          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+          const run = await executeProcess('kotlin', ['MainKt'], runDir, input, 20000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (20s)' };
           return { stdout: run.stdout, stderr: run.stderr };
         }
 

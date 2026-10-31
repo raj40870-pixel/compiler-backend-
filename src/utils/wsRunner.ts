@@ -189,7 +189,7 @@ export function handleWsConnection(ws: WebSocket) {
               break;
             case 'csharp': {
               const projB64 = Buffer.from(CS_PROJ_CONTENT).toString('base64');
-              runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --configuration Release`;
+              runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --no-restore --configuration Release`;
               break;
             }
             case 'go':
@@ -216,7 +216,7 @@ export function handleWsConnection(ws: WebSocket) {
               runCmd = 'echo $CODE_B64 | base64 -d > main.rs && rustc main.rs -o main && ./main';
               break;
             case 'kotlin':
-              runCmd = 'echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -include-runtime -d main.jar && java -jar main.jar';
+              runCmd = 'echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -d . && kotlin MainKt';
               break;
             case 'lua':
               runCmd = 'echo $CODE_B64 | base64 -d > main.lua && lua main.lua';
@@ -345,7 +345,7 @@ export function handleWsConnection(ws: WebSocket) {
             const programPath = path.join(runDir, 'Program.cs');
             fs.writeFileSync(programPath, code);
             compile('dotnet', ['restore'], runDir, () => {
-              startProcess('dotnet', ['run', '--project', 'main.csproj', '--configuration', 'Release'], runDir);
+              startProcess('dotnet', ['run', '--project', 'main.csproj', '--no-restore', '--configuration', 'Release'], runDir);
             });
             break;
           }
@@ -405,9 +405,8 @@ export function handleWsConnection(ws: WebSocket) {
             if (!compilerExists('kotlinc')) { notInstalled('Kotlin Compiler', 'Install Kotlin from https://kotlinlang.org/'); return; }
             const src = path.join(runDir, 'main.kt');
             fs.writeFileSync(src, code);
-            const jarPath = path.join(runDir, 'main.jar');
-            compile('kotlinc', ['main.kt', '-include-runtime', '-d', jarPath], runDir, () => {
-              startProcess('java', ['-jar', jarPath], runDir);
+            compile('kotlinc', ['main.kt', '-d', '.'], runDir, () => {
+              startProcess('kotlin', ['MainKt'], runDir);
             });
             break;
           }
