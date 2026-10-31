@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     rustc \
     cargo \
     lua5.4 \
+    ruby \
     unzip \
     && ln -s /usr/bin/lua5.4 /usr/bin/lua || true \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \

@@ -228,6 +228,9 @@ export function handleWsConnection(ws: WebSocket) {
             case 'shell':
               runCmd = 'echo $CODE_B64 | base64 -d > main.sh && bash main.sh';
               break;
+            case 'ruby':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.rb && ruby main.rb';
+              break;
             default:
               send('stderr', `Unsupported language: ${language}\r\n`);
               send('exit', 1);
@@ -435,6 +438,15 @@ export function handleWsConnection(ws: WebSocket) {
             const src = path.join(runDir, 'main.sh');
             fs.writeFileSync(src, code);
             startProcess(bashCmd, ['main.sh'], runDir);
+            break;
+          }
+
+          // ── Ruby ────────────────────────────────────────────────────────────
+          case 'ruby': {
+            if (!compilerExists('ruby')) { notInstalled('Ruby', 'Download from https://www.ruby-lang.org/'); return; }
+            const src = path.join(runDir, 'main.rb');
+            fs.writeFileSync(src, code);
+            startProcess('ruby', ['main.rb'], runDir);
             break;
           }
 

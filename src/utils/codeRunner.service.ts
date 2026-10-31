@@ -155,6 +155,9 @@ export class CodeRunnerService {
       case 'shell':
         runCmd = 'echo $CODE_B64 | base64 -d > main.sh && bash main.sh';
         break;
+      case 'ruby':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.rb && ruby main.rb';
+        break;
       default:
         return { stdout: '', stderr: `Unsupported language in Docker: ${lang}` };
     }
@@ -411,6 +414,15 @@ export class CodeRunnerService {
           const bashCmd = compilerExists('bash') ? 'bash' : 'sh';
 
           const run = await executeProcess(bashCmd, ['main.sh'], runDir, input, 15000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'ruby': {
+          const srcPath = path.join(runDir, 'main.rb');
+          fs.writeFileSync(srcPath, code);
+
+          const run = await executeProcess('ruby', ['main.rb'], runDir, input, 15000);
           if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
           return { stdout: run.stdout, stderr: run.stderr };
         }
