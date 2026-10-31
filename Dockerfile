@@ -37,6 +37,24 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Environment configuration for fast, silent execution of .NET and Kotlin
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+    DOTNET_GENERATE_ASPNET_CERTIFICATE=0 \
+    JAVA_OPTS="-Xmx384m -Xms64m -XX:+TieredCompilation -XX:TieredStopAtLevel=1"
+
+# Pre-warm .NET SDK, NuGet caches, and Kotlin compiler
+RUN dotnet new console -o /tmp/warmup-cs \
+    && cd /tmp/warmup-cs \
+    && dotnet build -c Release \
+    && cd / \
+    && rm -rf /tmp/warmup-cs \
+    && echo 'fun main() { println("warm") }' > /tmp/warm.kt \
+    && kotlinc /tmp/warm.kt -J-Xmx384m -J-XX:+TieredCompilation -J-XX:TieredStopAtLevel=1 -d /tmp/warm.jar \
+    && rm -rf /tmp/warm* \
+    && chmod -R 777 /tmp
+
 # Set working directory
 WORKDIR /app
 
@@ -50,7 +68,9 @@ RUN npm install
 COPY . .
 
 # Build TypeScript code
-RUN npm run build
+RUN npm run build \
+    && mkdir -p /app/bin/runs \
+    && chmod -R 777 /app/bin
 
 # Expose port
 EXPOSE 8080

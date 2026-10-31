@@ -313,13 +313,14 @@ export class CodeRunnerService {
           const programPath = path.join(runDir, 'Program.cs');
           fs.writeFileSync(programPath, code);
 
-          const restore = await executeProcess('dotnet', ['restore'], runDir, '', 30000);
-          if (restore.code !== 0) {
-            return { stdout: '', stderr: restore.stderr || restore.stdout };
+          const compile = await executeProcess('dotnet', ['build', 'main.csproj', '-c', 'Release', '--nologo', '-v', 'q'], runDir, '', 45000);
+          if (compile.code !== 0) {
+            return { stdout: '', stderr: compile.stderr || compile.stdout };
           }
 
-          const run = await executeProcess('dotnet', ['run', '--project', 'main.csproj', '--no-restore'], runDir, input, 25000);
-          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (25s)' };
+          const dllPath = path.join(runDir, 'bin', 'Release', 'net8.0', 'main.dll');
+          const run = await executeProcess('dotnet', [dllPath], runDir, input, 15000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
           return { stdout: run.stdout, stderr: run.stderr };
         }
 
@@ -379,13 +380,15 @@ export class CodeRunnerService {
         case 'kotlin': {
           const srcPath = path.join(runDir, 'main.kt');
           fs.writeFileSync(srcPath, code);
+          const classesDir = path.join(runDir, 'classes');
+          fs.mkdirSync(classesDir, { recursive: true, mode: 0o777 });
 
-          const compile = await executeProcess('kotlinc', ['main.kt', '-d', '.'], runDir, '', 30000);
+          const compile = await executeProcess('kotlinc', ['main.kt', '-J-Xmx384m', '-J-XX:+TieredCompilation', '-J-XX:TieredStopAtLevel=1', '-d', classesDir], runDir, '', 45000);
           if (compile.code !== 0) {
             return { stdout: '', stderr: compile.stderr || compile.stdout };
           }
 
-          const run = await executeProcess('kotlin', ['MainKt'], runDir, input, 20000);
+          const run = await executeProcess('kotlin', ['-J-Xmx256m', '-cp', classesDir, 'MainKt'], runDir, input, 20000);
           if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (20s)' };
           return { stdout: run.stdout, stderr: run.stderr };
         }

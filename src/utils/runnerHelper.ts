@@ -67,6 +67,11 @@ export const BASE_ENV: NodeJS.ProcessEnv = {
   PATH: ENRICHED_PATH,
   PYTHONIOENCODING: 'utf-8',
   PYTHONUNBUFFERED: '1',
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1',
+  DOTNET_NOLOGO: '1',
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1',
+  DOTNET_GENERATE_ASPNET_CERTIFICATE: '0',
+  JAVA_OPTS: '-Xmx384m -Xms64m -XX:+TieredCompilation -XX:TieredStopAtLevel=1',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

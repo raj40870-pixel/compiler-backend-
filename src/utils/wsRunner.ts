@@ -119,6 +119,7 @@ export function handleWsConnection(ws: WebSocket) {
       compChild.stderr?.on('data', (d) => (output += d.toString()));
 
       compChild.on('close', (code) => {
+        if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
         if (code !== 0) {
           send('stderr', output.replace(/\n/g, '\r\n'));
           send('exit', code ?? 1);
@@ -129,6 +130,7 @@ export function handleWsConnection(ws: WebSocket) {
       });
 
       compChild.on('error', (err) => {
+        if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
         send('stderr', `Compiler failed: ${err.message}\r\n`);
         send('exit', 1);
         cleanup();
@@ -136,9 +138,9 @@ export function handleWsConnection(ws: WebSocket) {
 
       timeoutId = setTimeout(() => {
         try { compChild.kill('SIGKILL'); } catch (_) { }
-        send('stderr', '\r\nCompilation timed out (45 seconds)\r\n');
+        send('stderr', '\r\nCompilation timed out (60 seconds)\r\n');
         cleanup();
-      }, 45_000);
+      }, 60_000);
 
     } catch (err: any) {
       send('stderr', `Compiler spawn failed: ${err.message}\r\n`);
@@ -189,7 +191,7 @@ export function handleWsConnection(ws: WebSocket) {
               break;
             case 'csharp': {
               const projB64 = Buffer.from(CS_PROJ_CONTENT).toString('base64');
-              runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --no-restore --configuration Release`;
+              runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet build main.csproj -c Release --nologo -v q && dotnet ./bin/Release/net8.0/main.dll`;
               break;
             }
             case 'go':
@@ -216,7 +218,7 @@ export function handleWsConnection(ws: WebSocket) {
               runCmd = 'echo $CODE_B64 | base64 -d > main.rs && rustc main.rs -o main && ./main';
               break;
             case 'kotlin':
-              runCmd = 'echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -d . && kotlin MainKt';
+              runCmd = 'mkdir -p classes && echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -J-Xmx384m -J-XX:+TieredCompilation -J-XX:TieredStopAtLevel=1 -d classes && kotlin -J-Xmx256m -cp classes MainKt';
               break;
             case 'lua':
               runCmd = 'echo $CODE_B64 | base64 -d > main.lua && lua main.lua';
@@ -344,8 +346,9 @@ export function handleWsConnection(ws: WebSocket) {
             fs.writeFileSync(csprojPath, CS_PROJ_CONTENT);
             const programPath = path.join(runDir, 'Program.cs');
             fs.writeFileSync(programPath, code);
-            compile('dotnet', ['restore'], runDir, () => {
-              startProcess('dotnet', ['run', '--project', 'main.csproj', '--no-restore', '--configuration', 'Release'], runDir);
+            compile('dotnet', ['build', 'main.csproj', '-c', 'Release', '--nologo', '-v', 'q'], runDir, () => {
+              const dllPath = path.join(runDir, 'bin', 'Release', 'net8.0', 'main.dll');
+              startProcess('dotnet', [dllPath], runDir);
             });
             break;
           }
@@ -405,8 +408,10 @@ export function handleWsConnection(ws: WebSocket) {
             if (!compilerExists('kotlinc')) { notInstalled('Kotlin Compiler', 'Install Kotlin from https://kotlinlang.org/'); return; }
             const src = path.join(runDir, 'main.kt');
             fs.writeFileSync(src, code);
-            compile('kotlinc', ['main.kt', '-d', '.'], runDir, () => {
-              startProcess('kotlin', ['MainKt'], runDir);
+            const classesDir = path.join(runDir, 'classes');
+            fs.mkdirSync(classesDir, { recursive: true, mode: 0o777 });
+            compile('kotlinc', ['main.kt', '-J-Xmx384m', '-J-XX:+TieredCompilation', '-J-XX:TieredStopAtLevel=1', '-d', classesDir], runDir, () => {
+              startProcess('kotlin', ['-J-Xmx256m', '-cp', classesDir, 'MainKt'], runDir);
             });
             break;
           }
