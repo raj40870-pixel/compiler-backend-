@@ -112,8 +112,16 @@ export function getPythonCmd(): string {
 //  Java class name extraction
 // ─────────────────────────────────────────────────────────────────────────────
 export function getJavaClassName(code: string): string {
-  const match = code.match(/public\s+class\s+(\w+)/);
-  return match?.[1] ?? 'Main';
+  const publicMatch = code.match(/public\s+(?:class|record|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/);
+  if (publicMatch && publicMatch[1]) return publicMatch[1];
+
+  const mainClassMatch = code.match(/class\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\{[^}]*static\s+void\s+main/s);
+  if (mainClassMatch && mainClassMatch[1]) return mainClassMatch[1];
+
+  const anyMatch = code.match(/(?:class|record|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/);
+  if (anyMatch && anyMatch[1]) return anyMatch[1];
+
+  return 'Main';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
