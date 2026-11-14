@@ -537,7 +537,7 @@ function handleWsConnection(ws) {
                         }
                         const src = path_1.default.join(runDir, 'main.scala');
                         fs_1.default.writeFileSync(src, code);
-                        startProcess('scala', ['-nc', 'main.scala'], runDir);
+                        startProcess('scala', ['-nc', '-J-Xmx384m', '-J-XX:+TieredCompilation', '-J-XX:TieredStopAtLevel=1', 'main.scala'], runDir);
                         break;
                     }
                     // ── Julia ───────────────────────────────────────────────────────────

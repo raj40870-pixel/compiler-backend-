@@ -407,9 +407,9 @@ class CodeRunnerService {
                 case 'scala': {
                     const srcPath = path_1.default.join(runDir, 'main.scala');
                     fs_1.default.writeFileSync(srcPath, code);
-                    const run = await executeProcess('scala', ['-nc', 'main.scala'], runDir, input, 15000);
+                    const run = await executeProcess('scala', ['-nc', '-J-Xmx384m', '-J-XX:+TieredCompilation', '-J-XX:TieredStopAtLevel=1', 'main.scala'], runDir, input, 45000);
                     if (run.timedOut)
-                        return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+                        return { stdout: '', stderr: '⏱  Execution Timed Out (45s)' };
                     return { stdout: run.stdout, stderr: run.stderr };
                 }
                 case 'julia': {

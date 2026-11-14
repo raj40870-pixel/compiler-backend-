@@ -510,7 +510,7 @@ export function handleWsConnection(ws: WebSocket) {
             if (!compilerExists('scala')) { notInstalled('Scala', 'Download from https://www.scala-lang.org/'); return; }
             const src = path.join(runDir, 'main.scala');
             fs.writeFileSync(src, code);
-            startProcess('scala', ['-nc', 'main.scala'], runDir);
+            startProcess('scala', ['-nc', '-J-Xmx384m', '-J-XX:+TieredCompilation', '-J-XX:TieredStopAtLevel=1', 'main.scala'], runDir);
             break;
           }
 

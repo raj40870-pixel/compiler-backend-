@@ -486,8 +486,8 @@ export class CodeRunnerService {
           const srcPath = path.join(runDir, 'main.scala');
           fs.writeFileSync(srcPath, code);
 
-          const run = await executeProcess('scala', ['-nc', 'main.scala'], runDir, input, 15000);
-          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+          const run = await executeProcess('scala', ['-nc', '-J-Xmx384m', '-J-XX:+TieredCompilation', '-J-XX:TieredStopAtLevel=1', 'main.scala'], runDir, input, 45000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (45s)' };
           return { stdout: run.stdout, stderr: run.stderr };
         }
 
