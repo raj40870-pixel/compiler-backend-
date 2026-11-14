@@ -237,6 +237,15 @@ function handleWsConnection(ws) {
                         case 'perl':
                             runCmd = 'echo $CODE_B64 | base64 -d > main.pl && perl main.pl';
                             break;
+                        case 'swift':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.swift && swift main.swift';
+                            break;
+                        case 'scala':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.scala && scala main.scala';
+                            break;
+                        case 'julia':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.jl && julia main.jl';
+                            break;
                         default:
                             send('stderr', `Unsupported language: ${language}\r\n`);
                             send('exit', 1);
@@ -507,6 +516,39 @@ function handleWsConnection(ws) {
                         const src = path_1.default.join(runDir, 'main.pl');
                         fs_1.default.writeFileSync(src, code);
                         startProcess('perl', ['main.pl'], runDir);
+                        break;
+                    }
+                    // ── Swift ───────────────────────────────────────────────────────────
+                    case 'swift': {
+                        if (!(0, runnerHelper_1.compilerExists)('swift')) {
+                            notInstalled('Swift', 'Download from https://swift.org/download/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.swift');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess('swift', ['main.swift'], runDir);
+                        break;
+                    }
+                    // ── Scala ───────────────────────────────────────────────────────────
+                    case 'scala': {
+                        if (!(0, runnerHelper_1.compilerExists)('scala')) {
+                            notInstalled('Scala', 'Download from https://www.scala-lang.org/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.scala');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess('scala', ['main.scala'], runDir);
+                        break;
+                    }
+                    // ── Julia ───────────────────────────────────────────────────────────
+                    case 'julia': {
+                        if (!(0, runnerHelper_1.compilerExists)('julia')) {
+                            notInstalled('Julia', 'Download from https://julialang.org/downloads/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.jl');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess('julia', ['main.jl'], runDir);
                         break;
                     }
                     default:

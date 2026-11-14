@@ -22,6 +22,12 @@ RUN apt-get update && apt-get install -y \
     ruby \
     perl \
     r-base \
+    scala \
+    clang \
+    libicu-dev \
+    libcurl4 \
+    libxml2 \
+    libz3-dev \
     unzip \
     && ln -s /usr/bin/lua5.4 /usr/bin/lua || true \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -41,11 +47,21 @@ RUN apt-get update && apt-get install -y \
     && unzip /tmp/dart.zip -d /opt \
     && rm /tmp/dart.zip \
     && ln -s /opt/dart-sdk/bin/dart /usr/local/bin/dart \
+    && curl -fsSL https://julialang-s3.julialang.org/bin/linux/x64/1.10/julia-1.10.5-linux-x86_64.tar.gz -o /tmp/julia.tar.gz \
+    && tar -xzf /tmp/julia.tar.gz -C /opt \
+    && rm /tmp/julia.tar.gz \
+    && ln -s /opt/julia-1.10.5/bin/julia /usr/local/bin/julia \
+    && curl -fsSL https://download.swift.org/swift-5.10.1-release/ubuntu2204/swift-5.10.1-RELEASE/swift-5.10.1-RELEASE-ubuntu22.04.tar.gz -o /tmp/swift.tar.gz \
+    && tar -xzf /tmp/swift.tar.gz -C /opt \
+    && rm /tmp/swift.tar.gz \
+    && ln -s /opt/swift-5.10.1-RELEASE-ubuntu22.04/usr/bin/swift /usr/local/bin/swift \
+    && ln -s /opt/swift-5.10.1-RELEASE-ubuntu22.04/usr/bin/swiftc /usr/local/bin/swiftc \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Environment configuration for fast, silent execution of .NET and Kotlin
-ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+# Environment configuration for fast, silent execution of .NET, Kotlin, and Swift
+ENV PATH="/opt/swift-5.10.1-RELEASE-ubuntu22.04/usr/bin:${PATH}" \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NOLOGO=1 \
     DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
     DOTNET_GENERATE_ASPNET_CERTIFICATE=0 \
@@ -63,6 +79,12 @@ RUN dotnet new console -o /tmp/warmup-cs \
     && dart run /tmp/warm.dart \
     && Rscript -e 'cat("warm\n")' \
     && perl -e 'print "warm\n"' \
+    && echo 'object Main extends App { println("warm") }' > /tmp/warm.scala \
+    && scala /tmp/warm.scala \
+    && echo 'println("warm")' > /tmp/warm.jl \
+    && julia /tmp/warm.jl \
+    && echo 'print("warm")' > /tmp/warm.swift \
+    && swift /tmp/warm.swift \
     && rm -rf /tmp/warm* \
     && chmod -R 777 /tmp
 

@@ -240,6 +240,15 @@ export function handleWsConnection(ws: WebSocket) {
             case 'perl':
               runCmd = 'echo $CODE_B64 | base64 -d > main.pl && perl main.pl';
               break;
+            case 'swift':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.swift && swift main.swift';
+              break;
+            case 'scala':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.scala && scala main.scala';
+              break;
+            case 'julia':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.jl && julia main.jl';
+              break;
             default:
               send('stderr', `Unsupported language: ${language}\r\n`);
               send('exit', 1);
@@ -484,6 +493,33 @@ export function handleWsConnection(ws: WebSocket) {
             const src = path.join(runDir, 'main.pl');
             fs.writeFileSync(src, code);
             startProcess('perl', ['main.pl'], runDir);
+            break;
+          }
+
+          // ── Swift ───────────────────────────────────────────────────────────
+          case 'swift': {
+            if (!compilerExists('swift')) { notInstalled('Swift', 'Download from https://swift.org/download/'); return; }
+            const src = path.join(runDir, 'main.swift');
+            fs.writeFileSync(src, code);
+            startProcess('swift', ['main.swift'], runDir);
+            break;
+          }
+
+          // ── Scala ───────────────────────────────────────────────────────────
+          case 'scala': {
+            if (!compilerExists('scala')) { notInstalled('Scala', 'Download from https://www.scala-lang.org/'); return; }
+            const src = path.join(runDir, 'main.scala');
+            fs.writeFileSync(src, code);
+            startProcess('scala', ['main.scala'], runDir);
+            break;
+          }
+
+          // ── Julia ───────────────────────────────────────────────────────────
+          case 'julia': {
+            if (!compilerExists('julia')) { notInstalled('Julia', 'Download from https://julialang.org/downloads/'); return; }
+            const src = path.join(runDir, 'main.jl');
+            fs.writeFileSync(src, code);
+            startProcess('julia', ['main.jl'], runDir);
             break;
           }
 

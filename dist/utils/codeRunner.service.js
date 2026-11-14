@@ -135,6 +135,15 @@ class CodeRunnerService {
             case 'perl':
                 runCmd = 'echo $CODE_B64 | base64 -d > main.pl && perl main.pl';
                 break;
+            case 'swift':
+                runCmd = 'echo $CODE_B64 | base64 -d > main.swift && swift main.swift';
+                break;
+            case 'scala':
+                runCmd = 'echo $CODE_B64 | base64 -d > main.scala && scala main.scala';
+                break;
+            case 'julia':
+                runCmd = 'echo $CODE_B64 | base64 -d > main.jl && julia main.jl';
+                break;
             default:
                 return { stdout: '', stderr: `Unsupported language in Docker: ${lang}` };
         }
@@ -383,6 +392,30 @@ class CodeRunnerService {
                     const srcPath = path_1.default.join(runDir, 'main.pl');
                     fs_1.default.writeFileSync(srcPath, code);
                     const run = await executeProcess('perl', ['main.pl'], runDir, input, 15000);
+                    if (run.timedOut)
+                        return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+                    return { stdout: run.stdout, stderr: run.stderr };
+                }
+                case 'swift': {
+                    const srcPath = path_1.default.join(runDir, 'main.swift');
+                    fs_1.default.writeFileSync(srcPath, code);
+                    const run = await executeProcess('swift', ['main.swift'], runDir, input, 15000);
+                    if (run.timedOut)
+                        return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+                    return { stdout: run.stdout, stderr: run.stderr };
+                }
+                case 'scala': {
+                    const srcPath = path_1.default.join(runDir, 'main.scala');
+                    fs_1.default.writeFileSync(srcPath, code);
+                    const run = await executeProcess('scala', ['main.scala'], runDir, input, 15000);
+                    if (run.timedOut)
+                        return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+                    return { stdout: run.stdout, stderr: run.stderr };
+                }
+                case 'julia': {
+                    const srcPath = path_1.default.join(runDir, 'main.jl');
+                    fs_1.default.writeFileSync(srcPath, code);
+                    const run = await executeProcess('julia', ['main.jl'], runDir, input, 15000);
                     if (run.timedOut)
                         return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
                     return { stdout: run.stdout, stderr: run.stderr };
