@@ -28,6 +28,7 @@ RUN apt-get update && apt-get install -y \
     libcurl4 \
     libxml2 \
     libz3-dev \
+    libpython3.10 \
     unzip \
     && ln -s /usr/bin/lua5.4 /usr/bin/lua || true \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -79,12 +80,9 @@ RUN dotnet new console -o /tmp/warmup-cs \
     && dart run /tmp/warm.dart \
     && Rscript -e 'cat("warm\n")' \
     && perl -e 'print "warm\n"' \
-    && echo 'object Main extends App { println("warm") }' > /tmp/warm.scala \
-    && scala /tmp/warm.scala \
-    && echo 'println("warm")' > /tmp/warm.jl \
-    && julia /tmp/warm.jl \
-    && echo 'print("warm")' > /tmp/warm.swift \
-    && swift /tmp/warm.swift \
+    && (echo 'object Main extends App { println("warm") }' > /tmp/warm.scala && scala /tmp/warm.scala || true) \
+    && (echo 'println("warm")' > /tmp/warm.jl && julia /tmp/warm.jl || true) \
+    && (echo 'print("warm")' > /tmp/warm.swift && swift /tmp/warm.swift || true) \
     && rm -rf /tmp/warm* \
     && chmod -R 777 /tmp
 
