@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y \
     cargo \
     lua5.4 \
     ruby \
+    perl \
+    r-base \
     unzip \
     && ln -s /usr/bin/lua5.4 /usr/bin/lua || true \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -35,6 +37,10 @@ RUN apt-get update && apt-get install -y \
     && rm /tmp/kotlin.zip \
     && ln -s /opt/kotlinc/bin/kotlinc /usr/local/bin/kotlinc \
     && ln -s /opt/kotlinc/bin/kotlin /usr/local/bin/kotlin \
+    && curl -fsSL https://storage.googleapis.com/dart-archive/channels/stable/release/latest/sdk/dartsdk-linux-x64-release.zip -o /tmp/dart.zip \
+    && unzip /tmp/dart.zip -d /opt \
+    && rm /tmp/dart.zip \
+    && ln -s /opt/dart-sdk/bin/dart /usr/local/bin/dart \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -53,6 +59,10 @@ RUN dotnet new console -o /tmp/warmup-cs \
     && rm -rf /tmp/warmup-cs \
     && echo 'fun main() { println("warm") }' > /tmp/warm.kt \
     && kotlinc /tmp/warm.kt -J-Xmx384m -J-XX:+TieredCompilation -J-XX:TieredStopAtLevel=1 -d /tmp/warm.jar \
+    && echo 'void main() => print("warm");' > /tmp/warm.dart \
+    && dart run /tmp/warm.dart \
+    && Rscript -e 'cat("warm\n")' \
+    && perl -e 'print "warm\n"' \
     && rm -rf /tmp/warm* \
     && chmod -R 777 /tmp
 

@@ -158,6 +158,15 @@ export class CodeRunnerService {
       case 'ruby':
         runCmd = 'echo $CODE_B64 | base64 -d > main.rb && ruby main.rb';
         break;
+      case 'dart':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.dart && dart run main.dart';
+        break;
+      case 'r':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.R && Rscript main.R';
+        break;
+      case 'perl':
+        runCmd = 'echo $CODE_B64 | base64 -d > main.pl && perl main.pl';
+        break;
       default:
         return { stdout: '', stderr: `Unsupported language in Docker: ${lang}` };
     }
@@ -423,6 +432,34 @@ export class CodeRunnerService {
           fs.writeFileSync(srcPath, code);
 
           const run = await executeProcess('ruby', ['main.rb'], runDir, input, 15000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'dart': {
+          const srcPath = path.join(runDir, 'main.dart');
+          fs.writeFileSync(srcPath, code);
+
+          const run = await executeProcess('dart', ['run', 'main.dart'], runDir, input, 15000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'r': {
+          const srcPath = path.join(runDir, 'main.R');
+          fs.writeFileSync(srcPath, code);
+          const rCmd = compilerExists('Rscript') ? 'Rscript' : 'R';
+
+          const run = await executeProcess(rCmd, ['main.R'], runDir, input, 15000);
+          if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
+          return { stdout: run.stdout, stderr: run.stderr };
+        }
+
+        case 'perl': {
+          const srcPath = path.join(runDir, 'main.pl');
+          fs.writeFileSync(srcPath, code);
+
+          const run = await executeProcess('perl', ['main.pl'], runDir, input, 15000);
           if (run.timedOut) return { stdout: '', stderr: '⏱  Execution Timed Out (15s)' };
           return { stdout: run.stdout, stderr: run.stderr };
         }

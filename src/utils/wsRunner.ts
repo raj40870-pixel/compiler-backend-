@@ -231,6 +231,15 @@ export function handleWsConnection(ws: WebSocket) {
             case 'ruby':
               runCmd = 'echo $CODE_B64 | base64 -d > main.rb && ruby main.rb';
               break;
+            case 'dart':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.dart && dart run main.dart';
+              break;
+            case 'r':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.R && Rscript main.R';
+              break;
+            case 'perl':
+              runCmd = 'echo $CODE_B64 | base64 -d > main.pl && perl main.pl';
+              break;
             default:
               send('stderr', `Unsupported language: ${language}\r\n`);
               send('exit', 1);
@@ -447,6 +456,34 @@ export function handleWsConnection(ws: WebSocket) {
             const src = path.join(runDir, 'main.rb');
             fs.writeFileSync(src, code);
             startProcess('ruby', ['main.rb'], runDir);
+            break;
+          }
+
+          // ── Dart ────────────────────────────────────────────────────────────
+          case 'dart': {
+            if (!compilerExists('dart')) { notInstalled('Dart SDK', 'Download from https://dart.dev/get-dart'); return; }
+            const src = path.join(runDir, 'main.dart');
+            fs.writeFileSync(src, code);
+            startProcess('dart', ['run', 'main.dart'], runDir);
+            break;
+          }
+
+          // ── R ───────────────────────────────────────────────────────────────
+          case 'r': {
+            const rCmd = compilerExists('Rscript') ? 'Rscript' : (compilerExists('R') ? 'R' : 'Rscript');
+            if (!compilerExists(rCmd)) { notInstalled('R', 'Download from https://www.r-project.org/'); return; }
+            const src = path.join(runDir, 'main.R');
+            fs.writeFileSync(src, code);
+            startProcess(rCmd, ['main.R'], runDir);
+            break;
+          }
+
+          // ── Perl ────────────────────────────────────────────────────────────
+          case 'perl': {
+            if (!compilerExists('perl')) { notInstalled('Perl', 'Download from https://www.perl.org/'); return; }
+            const src = path.join(runDir, 'main.pl');
+            fs.writeFileSync(src, code);
+            startProcess('perl', ['main.pl'], runDir);
             break;
           }
 

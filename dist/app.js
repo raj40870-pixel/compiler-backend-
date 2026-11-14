@@ -17,6 +17,9 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json());
 app.use('/api', run_routes_1.default);
+app.get('/', (req, res) => {
+    res.send('Backend is running!');
+});
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });

@@ -68,6 +68,11 @@ exports.BASE_ENV = {
     PATH: ENRICHED_PATH,
     PYTHONIOENCODING: 'utf-8',
     PYTHONUNBUFFERED: '1',
+    DOTNET_CLI_TELEMETRY_OPTOUT: '1',
+    DOTNET_NOLOGO: '1',
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1',
+    DOTNET_GENERATE_ASPNET_CERTIFICATE: '0',
+    JAVA_OPTS: '-Xmx384m -Xms64m -XX:+TieredCompilation -XX:TieredStopAtLevel=1',
 };
 // ─────────────────────────────────────────────────────────────────────────────
 //  Docker availability (cached)
@@ -107,8 +112,16 @@ function getPythonCmd() {
 //  Java class name extraction
 // ─────────────────────────────────────────────────────────────────────────────
 function getJavaClassName(code) {
-    const match = code.match(/public\s+class\s+(\w+)/);
-    return match?.[1] ?? 'Main';
+    const publicMatch = code.match(/public\s+(?:class|record|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/);
+    if (publicMatch && publicMatch[1])
+        return publicMatch[1];
+    const mainClassMatch = code.match(/class\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\{[^}]*static\s+void\s+main/s);
+    if (mainClassMatch && mainClassMatch[1])
+        return mainClassMatch[1];
+    const anyMatch = code.match(/(?:class|record|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/);
+    if (anyMatch && anyMatch[1])
+        return anyMatch[1];
+    return 'Main';
 }
 // ─────────────────────────────────────────────────────────────────────────────
 //  C / C++ — inject stdout unbuffering so output appears immediately

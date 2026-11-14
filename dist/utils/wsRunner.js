@@ -112,6 +112,10 @@ function handleWsConnection(ws) {
             compChild.stdout?.on('data', (d) => (output += d.toString()));
             compChild.stderr?.on('data', (d) => (output += d.toString()));
             compChild.on('close', (code) => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
                 if (code !== 0) {
                     send('stderr', output.replace(/\n/g, '\r\n'));
                     send('exit', code ?? 1);
@@ -122,6 +126,10 @@ function handleWsConnection(ws) {
                 }
             });
             compChild.on('error', (err) => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
                 send('stderr', `Compiler failed: ${err.message}\r\n`);
                 send('exit', 1);
                 cleanup();
@@ -131,9 +139,9 @@ function handleWsConnection(ws) {
                     compChild.kill('SIGKILL');
                 }
                 catch (_) { }
-                send('stderr', '\r\nCompilation timed out (30 seconds)\r\n');
+                send('stderr', '\r\nCompilation timed out (60 seconds)\r\n');
                 cleanup();
-            }, 30000);
+            }, 60000);
         }
         catch (err) {
             send('stderr', `Compiler spawn failed: ${err.message}\r\n`);
@@ -160,7 +168,7 @@ function handleWsConnection(ws) {
                             runCmd = 'echo $CODE_B64 | base64 -d > main.c && gcc -O2 -Wall main.c -o main && ./main';
                             break;
                         case 'cpp':
-                            runCmd = 'echo $CODE_B64 | base64 -d > main.cpp && g++ -O2 -Wall main.cpp -o main && ./main';
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.cpp && g++ -std=c++17 -O0 -Wall main.cpp -o main && ./main';
                             break;
                         case 'python':
                             runCmd = 'echo $CODE_B64 | base64 -d > main.py && python3 -u main.py';
@@ -179,7 +187,7 @@ function handleWsConnection(ws) {
                             break;
                         case 'csharp': {
                             const projB64 = Buffer.from(runnerHelper_1.CS_PROJ_CONTENT).toString('base64');
-                            runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet restore && dotnet run --configuration Release`;
+                            runCmd = `echo ${projB64} | base64 -d > main.csproj && echo $CODE_B64 | base64 -d > Program.cs && dotnet build main.csproj -c Release --nologo -v q && dotnet ./bin/Release/net8.0/main.dll`;
                             break;
                         }
                         case 'go':
@@ -205,6 +213,29 @@ function handleWsConnection(ws) {
                         }
                         case 'rust':
                             runCmd = 'echo $CODE_B64 | base64 -d > main.rs && rustc main.rs -o main && ./main';
+                            break;
+                        case 'kotlin':
+                            runCmd = 'mkdir -p classes && echo $CODE_B64 | base64 -d > main.kt && kotlinc main.kt -J-Xmx384m -J-XX:+TieredCompilation -J-XX:TieredStopAtLevel=1 -d classes && kotlin -J-Xmx256m -cp classes MainKt';
+                            break;
+                        case 'lua':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.lua && lua main.lua';
+                            break;
+                        case 'bash':
+                        case 'sh':
+                        case 'shell':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.sh && bash main.sh';
+                            break;
+                        case 'ruby':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.rb && ruby main.rb';
+                            break;
+                        case 'dart':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.dart && dart run main.dart';
+                            break;
+                        case 'r':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.R && Rscript main.R';
+                            break;
+                        case 'perl':
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.pl && perl main.pl';
                             break;
                         default:
                             send('stderr', `Unsupported language: ${language}\r\n`);
@@ -248,7 +279,7 @@ function handleWsConnection(ws) {
                         }
                         const src = path_1.default.join(runDir, 'main.cpp');
                         fs_1.default.writeFileSync(src, (0, runnerHelper_1.injectStdoutUnbuffering)(code, 'cpp'));
-                        compile('g++', ['-std=c++14', '-O2', '-Wall', '-o', binaryPath, 'main.cpp'], runDir, () => {
+                        compile('g++', ['-std=c++17', '-O0', '-Wall', '-o', binaryPath, 'main.cpp'], runDir, () => {
                             startProcess(binaryPath, [], runDir);
                         });
                         break;
@@ -329,8 +360,9 @@ function handleWsConnection(ws) {
                         fs_1.default.writeFileSync(csprojPath, runnerHelper_1.CS_PROJ_CONTENT);
                         const programPath = path_1.default.join(runDir, 'Program.cs');
                         fs_1.default.writeFileSync(programPath, code);
-                        compile('dotnet', ['restore'], runDir, () => {
-                            startProcess('dotnet', ['run', '--project', 'main.csproj', '--configuration', 'Release'], runDir);
+                        compile('dotnet', ['build', 'main.csproj', '-c', 'Release', '--nologo', '-v', 'q'], runDir, () => {
+                            const dllPath = path_1.default.join(runDir, 'bin', 'Release', 'net8.0', 'main.dll');
+                            startProcess('dotnet', [dllPath], runDir);
                         });
                         break;
                     }
@@ -383,9 +415,98 @@ function handleWsConnection(ws) {
                         }
                         const src = path_1.default.join(runDir, 'main.rs');
                         fs_1.default.writeFileSync(src, code);
-                        compile('rustc', ['main.rs', '-o', binaryPath], runDir, () => {
+                        const rustArgs = process.platform === 'win32'
+                            ? ['main.rs', '--target', 'x86_64-pc-windows-gnu', '-o', binaryPath]
+                            : ['main.rs', '-o', binaryPath];
+                        compile('rustc', rustArgs, runDir, () => {
                             startProcess(binaryPath, [], runDir);
                         });
+                        break;
+                    }
+                    // ── Kotlin ──────────────────────────────────────────────────────────
+                    case 'kotlin': {
+                        if (!(0, runnerHelper_1.compilerExists)('kotlinc')) {
+                            notInstalled('Kotlin Compiler', 'Install Kotlin from https://kotlinlang.org/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.kt');
+                        fs_1.default.writeFileSync(src, code);
+                        const classesDir = path_1.default.join(runDir, 'classes');
+                        fs_1.default.mkdirSync(classesDir, { recursive: true, mode: 0o777 });
+                        compile('kotlinc', ['main.kt', '-J-Xmx384m', '-J-XX:+TieredCompilation', '-J-XX:TieredStopAtLevel=1', '-d', classesDir], runDir, () => {
+                            startProcess('kotlin', ['-J-Xmx256m', '-cp', classesDir, 'MainKt'], runDir);
+                        });
+                        break;
+                    }
+                    // ── Lua ─────────────────────────────────────────────────────────────
+                    case 'lua': {
+                        const luaCmd = (0, runnerHelper_1.compilerExists)('lua') ? 'lua' : ((0, runnerHelper_1.compilerExists)('lua5.4') ? 'lua5.4' : 'lua');
+                        if (!(0, runnerHelper_1.compilerExists)(luaCmd)) {
+                            notInstalled('Lua', 'Download from https://www.lua.org/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.lua');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess(luaCmd, ['main.lua'], runDir);
+                        break;
+                    }
+                    // ── Bash / Shell ────────────────────────────────────────────────────
+                    case 'bash':
+                    case 'sh':
+                    case 'shell': {
+                        const bashCmd = (0, runnerHelper_1.compilerExists)('bash') ? 'bash' : 'sh';
+                        if (!(0, runnerHelper_1.compilerExists)(bashCmd)) {
+                            notInstalled('Bash', 'Bash is not available on this server');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.sh');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess(bashCmd, ['main.sh'], runDir);
+                        break;
+                    }
+                    // ── Ruby ────────────────────────────────────────────────────────────
+                    case 'ruby': {
+                        if (!(0, runnerHelper_1.compilerExists)('ruby')) {
+                            notInstalled('Ruby', 'Download from https://www.ruby-lang.org/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.rb');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess('ruby', ['main.rb'], runDir);
+                        break;
+                    }
+                    // ── Dart ────────────────────────────────────────────────────────────
+                    case 'dart': {
+                        if (!(0, runnerHelper_1.compilerExists)('dart')) {
+                            notInstalled('Dart SDK', 'Download from https://dart.dev/get-dart');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.dart');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess('dart', ['run', 'main.dart'], runDir);
+                        break;
+                    }
+                    // ── R ───────────────────────────────────────────────────────────────
+                    case 'r': {
+                        const rCmd = (0, runnerHelper_1.compilerExists)('Rscript') ? 'Rscript' : ((0, runnerHelper_1.compilerExists)('R') ? 'R' : 'Rscript');
+                        if (!(0, runnerHelper_1.compilerExists)(rCmd)) {
+                            notInstalled('R', 'Download from https://www.r-project.org/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.R');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess(rCmd, ['main.R'], runDir);
+                        break;
+                    }
+                    // ── Perl ────────────────────────────────────────────────────────────
+                    case 'perl': {
+                        if (!(0, runnerHelper_1.compilerExists)('perl')) {
+                            notInstalled('Perl', 'Download from https://www.perl.org/');
+                            return;
+                        }
+                        const src = path_1.default.join(runDir, 'main.pl');
+                        fs_1.default.writeFileSync(src, code);
+                        startProcess('perl', ['main.pl'], runDir);
                         break;
                     }
                     default:
