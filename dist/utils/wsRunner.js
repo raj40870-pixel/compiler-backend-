@@ -241,7 +241,7 @@ function handleWsConnection(ws) {
                             runCmd = 'echo $CODE_B64 | base64 -d > main.swift && swift main.swift';
                             break;
                         case 'scala':
-                            runCmd = 'echo $CODE_B64 | base64 -d > main.scala && scala main.scala';
+                            runCmd = 'echo $CODE_B64 | base64 -d > main.scala && (scalac -d . main.scala && scala -cp . Main || scala -nc main.scala)';
                             break;
                         case 'julia':
                             runCmd = 'echo $CODE_B64 | base64 -d > main.jl && julia main.jl';
